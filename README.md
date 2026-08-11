@@ -82,6 +82,45 @@ Notes:
 - If installed as a package (`pip install .`), the same tool is available as
   `whisper-subtitles`.
 
+## Live captions / live translation (`live_captions.py`)
+
+A floating always-on-top caption bar for whatever's currently playing (a
+video in VLC, a stream, a call) — captures the same system-audio loopback
+source meeting mode uses, so there's no VLC-side setup:
+
+```
+python live_captions.py                # live captions, source language
+python live_captions.py --translate    # live English captions, any source language
+python live_captions.py --language ja  # skip language auto-detect
+python live_captions.py --no-overlay   # print to the console instead of a window
+```
+
+Play the video as normal; the overlay floats on top of it like a caption
+bar. Press **Esc** with the overlay focused, or Ctrl+C in the console, to
+stop.
+
+How it works — a rolling buffer, not a batch pass:
+
+- System audio is captured continuously into a buffer.
+- Every `--step` seconds (default 1.2s) the buffer-so-far is re-transcribed;
+  the tentative text replaces the on-screen caption right away, so it
+  visibly fills in as the speaker talks.
+- Once a trailing pause is detected, that line is finalized and the buffer
+  clears for the next one.
+- If someone talks on with no pause, the buffer is capped at `--window`
+  seconds (default 10) and force-flushed so latency and per-pass cost stay
+  bounded.
+
+This re-transcribes the growing buffer from scratch each pass rather than
+doing true incremental decoding, so there's a real latency floor set by
+`--step` and how fast the model runs on your hardware. **Model choice
+matters a lot more here than for batch subtitles** — `large-v3-turbo` on a
+good NVIDIA GPU is fine, but on CPU or a modest GPU drop to `distil-large-v3`
+or `small` in `config.json`, or captions will visibly lag the audio.
+
+`--translate` has the same English-only limitation as `subtitles.py`'s
+`--translate`.
+
 ## Config (`config.json`)
 
 - `model` — any faster-whisper model id. `large-v3-turbo` is the default; use

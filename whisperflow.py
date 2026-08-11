@@ -648,6 +648,69 @@ class Diarizer:
         return labels
 
 
+def resolve_system_audio_source(cfg):
+    """Find the system-audio (loopback/monitor) source to capture from.
+
+    Shared by meeting recording and live captions -- only the fiddly,
+    platform-specific "which device is this" logic; each caller opens its
+    own stream on top with whatever callback it needs.
+
+    Returns:
+      Windows   -> (pyaudio.PyAudio instance, loopback device dict). Caller
+                   is responsible for pa.terminate() when done.
+      mac/linux -> (device_index, sounddevice device-info dict)
+    """
+    override = cfg.get("system_audio_device")
+
+    if IS_WIN:
+        import pyaudiowpatch as pyaudio
+
+        pa = pyaudio.PyAudio()
+        try:
+            if override is not None:
+                for lb in pa.get_loopback_device_info_generator():
+                    if str(override).lower() in lb["name"].lower():
+                        return pa, lb
+                raise RuntimeError(f"no loopback device matching '{override}'")
+            wasapi = pa.get_host_api_info_by_type(pyaudio.paWASAPI)
+            if wasapi["defaultOutputDevice"] < 0:
+                raise RuntimeError("no default output device (check sound settings)")
+            speakers = pa.get_device_info_by_index(wasapi["defaultOutputDevice"])
+            if not speakers.get("isLoopbackDevice"):
+                for lb in pa.get_loopback_device_info_generator():
+                    if speakers["name"] in lb["name"]:
+                        return pa, lb
+                raise RuntimeError("no loopback device for default output")
+            return pa, speakers
+        except Exception:
+            pa.terminate()
+            raise
+
+    # macOS / Linux: capture from a monitor or virtual-loopback input
+    inputs = list_input_devices()
+    if override is not None:
+        for i, name, _api in inputs:
+            if str(override).lower() in name.lower():
+                return i, sd.query_devices(i)
+        raise RuntimeError(f"no input device matching '{override}'")
+    keys = ("blackhole", "loopback", "soundflower") if IS_MAC else ("monitor",)
+    for i, name, _api in inputs:
+        if any(k in name.lower() for k in keys):
+            return i, sd.query_devices(i)
+    if IS_MAC:
+        raise RuntimeError(
+            "no virtual loopback input found. Install BlackHole "
+            "(https://existential.audio/blackhole/), create a "
+            "Multi-Output Device (speakers + BlackHole) in Audio "
+            "MIDI Setup, and use it as the system output during "
+            "meetings — or set \"system_audio_device\" in config.json"
+        )
+    raise RuntimeError(
+        "no PulseAudio/PipeWire monitor input found — set "
+        "\"system_audio_device\" in config.json (see --list)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Meeting recording: mic + system audio -> merged, speaker-labeled transcript
 # ---------------------------------------------------------------------------
@@ -669,35 +732,10 @@ class Meeting:
     def _open_system_capture(self, out_path):
         """Start capturing system playback audio to out_path.
         Sets self._sys_close to a cleanup callable. Returns the source name."""
-        override = self.cfg.get("system_audio_device")
-
         if IS_WIN:
             import pyaudiowpatch as pyaudio
 
-            pa = pyaudio.PyAudio()
-            speakers = None
-            if override is not None:
-                for lb in pa.get_loopback_device_info_generator():
-                    if str(override).lower() in lb["name"].lower():
-                        speakers = lb
-                        break
-                if speakers is None:
-                    pa.terminate()
-                    raise RuntimeError(f"no loopback device matching '{override}'")
-            else:
-                wasapi = pa.get_host_api_info_by_type(pyaudio.paWASAPI)
-                if wasapi["defaultOutputDevice"] < 0:
-                    pa.terminate()
-                    raise RuntimeError("no default output device (check sound settings)")
-                speakers = pa.get_device_info_by_index(wasapi["defaultOutputDevice"])
-                if not speakers.get("isLoopbackDevice"):
-                    for lb in pa.get_loopback_device_info_generator():
-                        if speakers["name"] in lb["name"]:
-                            speakers = lb
-                            break
-                    else:
-                        pa.terminate()
-                        raise RuntimeError("no loopback device for default output")
+            pa, speakers = resolve_system_audio_source(self.cfg)
             rate = int(speakers["defaultSampleRate"])
             channels = max(1, int(speakers["maxInputChannels"]))
 
@@ -726,35 +764,7 @@ class Meeting:
             return speakers["name"]
 
         # macOS / Linux: capture from a monitor or virtual-loopback input
-        inputs = list_input_devices()
-        dev = None
-        if override is not None:
-            for i, name, _api in inputs:
-                if str(override).lower() in name.lower():
-                    dev = i
-                    break
-            if dev is None:
-                raise RuntimeError(f"no input device matching '{override}'")
-        else:
-            keys = ("blackhole", "loopback", "soundflower") if IS_MAC else ("monitor",)
-            for i, name, _api in inputs:
-                if any(k in name.lower() for k in keys):
-                    dev = i
-                    break
-            if dev is None:
-                if IS_MAC:
-                    raise RuntimeError(
-                        "no virtual loopback input found. Install BlackHole "
-                        "(https://existential.audio/blackhole/), create a "
-                        "Multi-Output Device (speakers + BlackHole) in Audio "
-                        "MIDI Setup, and use it as the system output during "
-                        "meetings — or set \"system_audio_device\" in config.json"
-                    )
-                raise RuntimeError(
-                    "no PulseAudio/PipeWire monitor input found — set "
-                    "\"system_audio_device\" in config.json (see --list)"
-                )
-        info = sd.query_devices(dev)
+        dev, info = resolve_system_audio_source(self.cfg)
         rate = int(info["default_samplerate"])
         channels = max(1, min(2, info["max_input_channels"]))
 

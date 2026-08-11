@@ -33,6 +33,7 @@ whispercpp = ["pywhispercpp"]
 [project.scripts]
 whisperflow = "whisperflow:main"
 whisper-subtitles = "subtitles:main"
+whisper-live-captions = "live_captions:main"
 
 [tool.setuptools]
-py-modules = ["whisperflow", "subtitles"]
+py-modules = ["whisperflow", "subtitles", "live_captions"]
