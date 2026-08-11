@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisperflow-local"
+version = "1.0.0"
+description = "Fully local hotkey dictation + meeting transcription (Windows/macOS/Linux)"
+requires-python = ">=3.10"
+dependencies = [
+    "faster-whisper>=1.0",
+    "sounddevice",
+    "soundfile",
+    "numpy",
+    "scipy",
+    "pynput",
+    "pyperclip",
+    "speechbrain>=1.0",
+    "torch",
+    "pyaudiowpatch; sys_platform == 'win32'",
+    "av",
+]
+
+[project.optional-dependencies]
+# NVIDIA GPU acceleration for faster-whisper (Windows/Linux)
+cuda = [
+    "nvidia-cublas-cu12; sys_platform != 'darwin'",
+    "nvidia-cudnn-cu12>=9; sys_platform != 'darwin'",
+]
+# whisper.cpp backend: Apple Metal GPU on macOS; Vulkan builds cover AMD/Intel
+whispercpp = ["pywhispercpp"]
+
+[project.scripts]
+whisperflow = "whisperflow:main"
+whisper-subtitles = "subtitles:main"
+
+[tool.setuptools]
+py-modules = ["whisperflow", "subtitles"]

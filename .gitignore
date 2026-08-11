@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+build/
+*.egg-info/
+
+# personal config + local data — not for the public repo
+config.json
+models/
+meetings/
+history/
