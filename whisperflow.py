@@ -424,6 +424,34 @@ class Engine:
             )
             return [(s.start, s.end, s.text.strip()) for s in segments]
 
+    def transcribe_stream(self, audio_or_path, task="transcribe"):
+        """Like transcribe(), but yields (start, end, text) segments one at
+        a time as they're produced instead of collecting the whole list.
+
+        Used to pre-transcribe a file while it plays (see live_captions.py
+        --file): faster-whisper's decode is usually faster than real-time on
+        a GPU, so segments for a moment in the video can be ready well
+        before playback reaches it.
+        """
+        if self.backend == "whisper-cpp":
+            # pywhispercpp has no incremental API; yield from the batch result.
+            for seg in self.transcribe(audio_or_path, task=task):
+                yield seg
+            return
+        with self.lock:
+            segments, _info = self.model.transcribe(
+                audio_or_path,
+                task=task,
+                language=self.language,
+                vad_filter=True,
+                initial_prompt=self.initial_prompt,
+                condition_on_previous_text=False,
+            )
+            for s in segments:
+                text = s.text.strip()
+                if text:
+                    yield (s.start, s.end, text)
+
 
 # ---------------------------------------------------------------------------
 # Dictation: toggle mic recording, transcribe, paste into focused window

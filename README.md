@@ -121,6 +121,47 @@ or `small` in `config.json`, or captions will visibly lag the audio.
 `--translate` has the same English-only limitation as `subtitles.py`'s
 `--translate`.
 
+### Pre-buffered mode for a local file (`--file`), ahead of playback
+
+If you have the video as a **file** (not a genuine live stream), `--file`
+gives zero-latency captions instead of the rolling buffer's tentative text:
+it decodes and transcribes the whole file directly, as fast as the model
+can go — usually faster than real-time on a GPU — so a segment is ready
+*before* playback reaches that moment.
+
+```
+python live_captions.py --file movie.mkv
+python live_captions.py --file movie.mkv --translate
+```
+
+**Exact steps:**
+
+1. Run the command above. **Do not press Play in VLC yet.**
+2. It starts pre-transcribing the file in the background immediately and
+   prints progress. Wait for the console to show:
+   `Waiting for playback to start ...`
+3. Open the video in VLC and press **Play**. The instant audio is heard on
+   your speakers, that becomes the sync point (`Playback detected`).
+4. Captions now appear in sync with the video automatically, with no
+   per-line lag.
+
+If captions consistently land a bit early or late (loopback-based
+detection isn't frame-accurate), correct it with `--offset`:
+
+```
+python live_captions.py --file movie.mkv --offset 0.5    # 0.5s later
+python live_captions.py --file movie.mkv --offset -0.5   # 0.5s earlier
+```
+
+If your system has no working loopback/monitor source (step 3 can't detect
+playback), use `--start-now` instead: it skips audio detection and starts
+the sync clock the instant you press **Enter** in the console, so press
+Enter in the same motion as clicking Play in VLC:
+
+```
+python live_captions.py --file movie.mkv --start-now
+```
+
 ## Config (`config.json`)
 
 - `model` — any faster-whisper model id. `large-v3-turbo` is the default; use
